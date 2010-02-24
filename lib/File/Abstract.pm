@@ -3,6 +3,8 @@ package File::Abstract;
 use warnings;
 use strict;
 
+use Data::Dumper;
+
 =head1 NAME
 
 File::Abstract - The great new File::Abstract!
@@ -34,18 +36,14 @@ if you don't export anything, such as for a purely object-oriented module.
 
 =head1 SUBROUTINES/METHODS
 
-=head2 function1
+=head2 test
 
 =cut
 
-sub function1 {
-}
-
-=head2 function2
-
-=cut
-
-sub function2 {
+sub test {
+    my $self = shift;
+    
+    return Dumper($self->{'header'});
 }
 
 =head1 AUTHOR
