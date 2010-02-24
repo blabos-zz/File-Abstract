@@ -3,6 +3,7 @@ package File::Sample;
 use warnings;
 use strict;
 
+use File::Abstract;
 use parent 'File::Abstract';
 
 $File::Abstract::HEADER_FMT = [
@@ -19,9 +20,11 @@ $File::Abstract::RECORD_FMT = [
 sub new {
     my $class   = shift;
     my $args    = shift || {};
-    my $atts    = {};
+    my $atts    = {
+        'sample_att' => undef,
+    };
     
-    return bless $atts, $class;
+    return bless($atts, $class);
 }
 
 1; # End of File::Sample
