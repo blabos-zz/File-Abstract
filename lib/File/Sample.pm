@@ -8,7 +8,7 @@ use parent 'File::Abstract';
 
 $File::Abstract::HEADER_FMT = [
     {'version'      => 'l'},        # Version:              4 bytes
-    {'copy'         => 'Z20'},      # Copyright:           20 bytes
+    {'copy'         => 'Z40'},      # Copyright:           40 bytes
     {'timestamp'    => 'l'},        # Unix timestamp:       4 bytes
 ];
 

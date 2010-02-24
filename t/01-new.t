@@ -10,6 +10,4 @@ ok(
     'Constructed sample object'
 );
 
-diag( $sample->test );
-
-diag( "Testing File::Abstract $File::Abstract::VERSION, Perl $], $^X" );
+diag( "Testing object creation" );

@@ -55,14 +55,7 @@ if you don't export anything, such as for a purely object-oriented module.
 sub test {
     my $self = shift;
     
-    return Dumper($self, {
-        'header_template'       => $self->header_template,
-        'header_fields'         => $self->header_fields,
-        'header_size'           => $self->header_size,
-        'record_template'       => $self->record_template,
-        'record_fields'         => $self->record_fields,
-        'record_size'           => $self->record_size,
-    });
+    return $/.Dumper($self);
 }
 
 sub header_template {
@@ -89,6 +82,315 @@ sub record_size {
     return length pack record_template;
 }
 
+sub size {
+    my $self = shift;
+    return $self->{'_size'};
+}
+
+sub length {
+    my $self = shift;
+    return $self->{'_length'};
+}
+
+
+
+
+sub open_file {
+    my ($self, $filename)   = @_;
+    my $retval              = 1;
+    
+    eval {
+        open $self->{'_fh'}, '+<', $filename
+            or Carp::croak "Cannot open file '$filename'";
+        
+        $self->{'_size'}
+            = -s $filename;
+        
+        $self->{'_length'}
+            = ($self->{'_size'} - $self->{'_header_size'})
+            / $self->{'_record_size'};
+    };
+    if ($@) {
+        Carp::carp $@;
+        $retval = 0;
+    }
+    
+    return $retval;
+}
+
+sub new_file {
+    my ($self, $filename)   = @_;
+    my $retval              = 0;
+    
+    eval {
+        open $self->{'_fh'}, '>', $filename
+            or Carp::carp "Cannot create file '$filename'";
+        
+        $self->write_header;
+        
+        close $self->{'_fh'};
+        
+        $self->{'_size'}    = $self->{'_header_size'};
+        $self->{'_length'}  = 0;
+    };
+    if ($@) {
+        Carp::croak $@;
+    }
+    else {
+        $retval = 1;
+    }
+    
+    return $retval;
+}
+
+sub open_or_new_file {
+    my ($self, $filename)   = @_;
+    my $retval              = 0;
+    
+    eval {
+        $self->new_file($filename) unless (-f $filename);
+        $retval = $self->open_file($filename);
+    };
+    if ($@) {
+        Carp::croak $@;
+    }
+    
+    return $retval;
+}
+
+sub close_file {
+    my $self = shift;
+    
+    eval { close $self->{'_fh'} if $self->{'_fh'} }
+}
+
+
+sub read_record {
+    my $self    = shift;
+    my $index   = shift;
+    my $ret_ref = shift;
+    
+    my $retval = 0;
+    
+    if ($index >= 0 and $index < $self->{'_length'}) {
+        my $pos
+            = $self->{'_header_size'}
+            + $index * $self->{'_record_size'};
+        
+        eval {
+            $retval = $self->_read_record($pos, $ret_ref);
+        };
+        Carp::carp $@ if $@;
+    }
+    else {
+        Carp::carp
+            "Index $index out of range (0.." . ($self->{'_length'} - 1) . ")";
+        $retval = 0;
+    }
+    
+    return $retval;
+}
+
+sub read_record_list {
+    my $self    = shift;
+    my $count   = shift || 1;
+    my $offset  = shift || 0;
+    
+    my @records = ();
+    
+    if (   $count <= 0
+        or $count > $self->{'_length'}
+        or $offset < 0
+        or $offset >= $self->{'_length'}
+        or $count > ($self->{'_length'} - $offset) ) {
+        
+        my $last = $offset + $count - 1;
+        Carp::carp
+            "Range $offset..$last is out of valid range 0.."
+            . ($self->{'_length'} - 1);
+        return ();
+    }
+    
+    my $pos = $self->{'_header_size'} + $offset * $self->{'_record_size'};
+    eval{
+        return 0 unless seek $self->{'_fh'}, $pos, 0;
+        
+        for (1 .. $count) {
+            my (%record, $data);
+            
+            Carp::croak "Cannot read record " . ($count + $offset - 1)
+                unless read $self->{'_fh'}, $data, $self->{'_record_size'};
+            
+            @record{@{$self->{'_record_fields'}}}
+                = unpack($self->{'_record_template'}, $data);
+            
+            push @records, \%record;
+        }
+    };
+    if ($@) {
+        Carp::carp $@;
+        return ();
+    }
+    
+    return @records;
+}
+
+
+sub write_header {
+    my $self = shift;
+    
+    my $raw_data;
+    
+    return 0 unless seek $self->{'_fh'}, 0, 0;
+    
+    $self->_make_default_header unless keys %{$self->{header}};
+    
+    $raw_data
+        = pack(
+            $self->{'_header_template'},
+            @{$self->{'header'}}{@{$self->{'_header_fields'}}}
+        );
+    
+    return print {$self->{'_fh'}} $raw_data;
+}
+
+
+sub write_record {
+    my $self    = shift;
+    my $index   = shift;
+    my $record  = shift;
+    
+    my $retval = 0;
+    
+    my $pos
+        = $self->{'_header_size'}
+        + $index * $self->{'_record_size'};
+    
+    if ($index >= 0 and $index < $self->{'_length'}) {
+        eval {
+            $retval = $self->_write_record($pos, $record);
+        };
+        Carp::carp $@ if $@;
+    }
+    elsif ($index == $self->{'_length'}) {
+        $retval = $self->append_record($pos, $record);
+    }
+    else {
+        Carp::carp
+            "Index $index out of range (0.." . ($self->{'_length'} - 1) . ")";
+        $retval = 0;
+    }
+    
+    return $retval;
+}
+
+sub append_record {
+    my $self    = shift;
+    my $pos     = shift;
+    my $record  = shift;
+    
+    my $retval;
+    
+    eval {
+        $retval = $self->_write_record($pos, $record);
+        if ($retval) {
+            $self->{'_length'}  += 1;
+            $self->{'_size'}    += $self->{'_record_size'};
+        }
+    };
+    if ($@) {
+        Carp::carp $@;
+    }
+    
+    return $retval;
+}
+
+sub write_record_list {
+    my $self    = shift;
+    my $index   = shift;
+    
+    my $retval = 0;
+    
+    my $pos
+        = $self->{'_header_size'}
+        + $index * $self->{'_record_size'};
+    
+    if ($index >= 0 and $index <= $self->{'_length'}) {
+        eval {
+            $retval = $self->_write_record_list($pos, @_);
+        };
+        Carp::carp $@ if $@;
+    }
+    else {
+        Carp::carp
+            "Offset $index out of range (0.." . ($self->{'_length'} - 1) . ")";
+        $retval = 0;
+    }
+    
+    return $retval;
+}
+
+
+
+sub _read_record {
+    my ($self, $pos, $ret_hash_ref) = @_;
+    my $raw_data;
+    
+    return 0 unless seek $self->{'_fh'}, $pos, 0;
+    return 0 unless read $self->{'_fh'}, $raw_data, $self->{'_record_size'};
+    
+    @{$ret_hash_ref}{@{$self->{'_record_fields'}}}
+        = unpack($self->{'_record_template'}, $raw_data);
+    
+    return 1;
+}
+
+sub _make_default_header {
+    my $self = shift;
+    
+    foreach my $field (@{$self->{'_header_fields'}}) {
+        $self->{'header'}->{$field} = 0;
+    }
+}
+
+
+sub _write_record {
+    my ($self, $pos, $record) = @_;
+    
+    return 0 unless seek $self->{'_fh'}, $pos, 0;
+    
+    my $raw_data
+        = pack(
+            $self->{'_record_template'},
+            @{$record}{@{$self->{'_record_fields'}}}
+        );
+    
+    return print {$self->{'_fh'}} $raw_data;
+}
+
+sub _write_record_list {
+    my $self    = shift;
+    my $pos     = shift;
+    
+    return 0 unless seek $self->{'_fh'}, $pos, 0;
+    
+    my $raw_data = '';
+    
+    foreach my $record (@_) {
+        $raw_data
+            .= pack(
+                $self->{'_record_template'},
+                @{$record}{@{$self->{'_record_fields'}}}
+            );
+    }
+    
+    return print {$self->{'_fh'}} $raw_data;
+}
+
+
+
+
+
 sub import {
     no strict;
     *{caller() . '::bless'}
@@ -96,7 +398,15 @@ sub import {
             my ($atts, $class) = @_;
             
             my $base_atts = {
-                '_fh' => undef,
+                'header'                => {},
+                '_fh'                   => undef,
+                '_size'                 => undef,
+                '_header_template'      => header_template,
+                '_header_fields'        => header_fields,
+                '_header_size'          => header_size,
+                '_record_template'      => record_template,
+                '_record_fields'        => record_fields,
+                '_record_size'          => record_size,
             };
             
             bless({%{$atts}, %{$base_atts}}, $class);
