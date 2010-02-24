@@ -17,6 +17,9 @@ Version 0.01
 
 our $VERSION = '0.01';
 
+our $HEADER_FMT;
+our $RECORD_FMT;
+
 
 =head1 SYNOPSIS
 
@@ -43,8 +46,41 @@ if you don't export anything, such as for a purely object-oriented module.
 sub test {
     my $self = shift;
     
-    return Dumper($self->{'header'});
+    return Dumper({
+        'header_pack_template'  => $self->header_pack_template,
+        'header_fields'         => $self->header_fields,
+        'header_size'           => $self->header_size,
+        'record_pack_template'  => $self->record_pack_template,
+        'record_fields'         => $self->record_fields,
+        'record_size'           => $self->record_size,
+    });
 }
+
+sub header_pack_template {
+    return join '', map { values %{$_} } @{$HEADER_FMT};
+}
+
+sub header_fields {
+    return [map { keys %{$_} } @{$HEADER_FMT}];
+}
+
+sub header_size {
+    return length pack header_pack_template;
+}
+
+sub record_pack_template {
+    return join '', map { values %{$_} } @{$RECORD_FMT};
+}
+
+sub record_fields {
+    return [map { keys %{$_} } @{$RECORD_FMT}];
+}
+
+sub record_size {
+    return length pack record_pack_template;
+}
+
+
 
 =head1 AUTHOR
 
