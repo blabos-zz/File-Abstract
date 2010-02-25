@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-use Test::More qw(no_plan);
+use Test::More tests => 12;
 
 use File::Sample;
 use Data::Dumper;
@@ -22,6 +22,16 @@ my $rec_ref = {};
 ok(
     ($sample->write_record(0, \%data)),
     'Writing the first record'
+);
+
+ok(
+    ($sample->size == 60),
+    'Checking for size'
+);
+
+ok(
+    ($sample->length == 1),
+    'Checking for length'
 );
 
 delete @{$rec_ref}{keys %{$rec_ref}};
@@ -43,6 +53,16 @@ ok(
 ok(
     ($sample->write_record(0, \%data)),
     'Re-writing the first record'
+);
+
+ok(
+    ($sample->size == 60),
+    'Re-checking for size'
+);
+
+ok(
+    ($sample->length == 1),
+    'Re-checking for length'
 );
 
 delete @{$rec_ref}{keys %{$rec_ref}};
@@ -72,7 +92,7 @@ ok(
     'Writing the 11th record'
 );
 
-unlink 't/hst/set-test.hst';
+unlink 't/sample/write-test.bin';
 
 
 diag("Testing writing a record")

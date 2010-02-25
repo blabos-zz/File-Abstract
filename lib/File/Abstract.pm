@@ -15,7 +15,7 @@ Version 0.01
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 $HEADER_FMT
 
@@ -52,12 +52,6 @@ if you don't export anything, such as for a purely object-oriented module.
 
 =cut
 
-sub test {
-    my $self = shift;
-    
-    return $/.Dumper($self);
-}
-
 sub header_template {
     return join '', map { values %{$_} } @{$HEADER_FMT};
 }
@@ -82,6 +76,51 @@ sub record_size {
     return length pack record_template;
 }
 
+sub show_header_fmt {
+    my $self = shift;
+    return "\n                           HEADER\n\n" . meta_info($HEADER_FMT);
+}
+
+sub show_record_fmt {
+    my $self = shift;
+    return "\n                           RECORD\n\n" . meta_info($RECORD_FMT);
+}
+
+
+sub meta_info {
+    my $format_ref  = shift;
+    my $sum         = 0;
+    
+    my $output
+        = sprintf(
+            "%20s\t%10s\t%10s\t%10s\t%10s\n",
+            'FIELD',
+            'FORMAT',
+            'SIZE (BYTES)',
+            'OFFSET DEC',
+            'OFFSET HEX',
+        );
+    
+    foreach my $field (@{$format_ref}) {
+        my ($key, $value) = %{$field};
+        
+        $output
+            .= sprintf(
+                "%20s\t%10s\t%10d\t%10d\t%10X\n",
+                $key,
+                $value,
+                length(pack($value)),
+                $sum,
+                $sum,
+            );
+        
+        $sum += length(pack $value);
+    }
+    
+    return $output;
+}
+
+
 sub size {
     my $self = shift;
     return $self->{'_size'};
@@ -103,6 +142,11 @@ sub open_file {
         open $self->{'_fh'}, '+<', $filename
             or Carp::croak "Cannot open file '$filename'";
         
+        binmode $self->{'_fh'};
+        
+        $self->{'_filename'}
+            = $filename;
+            
         $self->{'_size'}
             = -s $filename;
         
@@ -293,10 +337,6 @@ sub append_record {
     
     eval {
         $retval = $self->_write_record($pos, $record);
-        if ($retval) {
-            $self->{'_length'}  += 1;
-            $self->{'_size'}    += $self->{'_record_size'};
-        }
     };
     if ($@) {
         Carp::carp $@;
@@ -306,8 +346,9 @@ sub append_record {
 }
 
 sub write_record_list {
-    my $self    = shift;
-    my $index   = shift;
+    my $self            = shift;
+    my $index           = shift;
+    my $record_list_ref = shift;
     
     my $retval = 0;
     
@@ -317,7 +358,7 @@ sub write_record_list {
     
     if ($index >= 0 and $index <= $self->{'_length'}) {
         eval {
-            $retval = $self->_write_record_list($pos, @_);
+            $retval = $self->_write_record_list($pos, $record_list_ref);
         };
         Carp::carp $@ if $@;
     }
@@ -359,34 +400,78 @@ sub _write_record {
     
     return 0 unless seek $self->{'_fh'}, $pos, 0;
     
-    my $raw_data
-        = pack(
-            $self->{'_record_template'},
-            @{$record}{@{$self->{'_record_fields'}}}
-        );
+    my $raw_data    = '';
+    my $retval      = 0;
     
-    return print {$self->{'_fh'}} $raw_data;
-}
-
-sub _write_record_list {
-    my $self    = shift;
-    my $pos     = shift;
-    
-    return 0 unless seek $self->{'_fh'}, $pos, 0;
-    
-    my $raw_data = '';
-    
-    foreach my $record (@_) {
+    eval {
         $raw_data
-            .= pack(
+            = pack(
                 $self->{'_record_template'},
                 @{$record}{@{$self->{'_record_fields'}}}
             );
+        
+        $retval = print {$self->{'_fh'}} $raw_data;
+        
+        if ($pos == $self->{'_size'}) {
+            $self->{'_size'}    += $self->{'_record_size'};
+            $self->{'_length'}  += 1;
+        }
+        else {
+            Carp::carp
+                "Failed to write record to file '", $self->{'_filename'}, "'";
+        }
+    };
+    if ($@) {
+        Carp::carp $@;
     }
     
-    return print {$self->{'_fh'}} $raw_data;
+    return $retval;
 }
 
+sub _write_record_list {
+    my $self            = shift;
+    my $pos             = shift;
+    my $record_list_ref = shift;
+    
+    return 0 unless seek $self->{'_fh'}, $pos, 0;
+    
+    my $raw_data        = '';
+    my $bytes_expected  = 0;
+    my $retval          = 0;
+    
+    eval {
+        foreach my $record (@{$record_list_ref}) {
+            $raw_data
+                .= pack(
+                    $self->{'_record_template'},
+                    @{$record}{@{$self->{'_record_fields'}}}
+                );
+            
+            $self->{'_length'}++;
+            $bytes_expected += $self->{'_record_size'};
+        }
+        
+        $retval = print {$self->{'_fh'}} $raw_data;
+        
+        if (($pos + $bytes_expected) >= $self->{'_size'}) {
+            $self->{'_size'}
+                = $pos + $bytes_expected;
+            
+            $self->{'_length'}
+                = ($self->{'_size'} - $self->{'_header_size'})
+                / $self->{'_record_size'}
+        }
+        else {
+            Carp::carp
+                "Failed to write record to file '", $self->{'_filename'}, "'";
+        }
+    };
+    if ($@) {
+        Carp::carp $@;
+    }
+    
+    return $retval;
+}
 
 
 
@@ -399,6 +484,7 @@ sub import {
             
             my $base_atts = {
                 'header'                => {},
+                '_filename'             => '',
                 '_fh'                   => undef,
                 '_size'                 => undef,
                 '_header_template'      => header_template,

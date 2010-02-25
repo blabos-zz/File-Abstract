@@ -1,4 +1,5 @@
 Changes
+File-Abstract-0.01.tar.gz
 ignore.txt
 inc/Module/AutoInstall.pm
 inc/Module/Install.pm
@@ -14,7 +15,7 @@ inc/Module/Install/WriteAll.pm
 lib/File/Abstract.pm
 lib/File/Sample.pm
 Makefile.PL
-MANIFEST
+MANIFEST			This list of files
 META.yml
 README
 t/00-load.t
@@ -23,9 +24,10 @@ t/02-open.t
 t/03-read.t
 t/03-read_list.t
 t/04-write.t
+t/04-write_list.t
+t/07-meta.t
 t/boilerplate.t
 t/manifest.t
 t/pod-coverage.t
 t/pod.t
 t/sample/read-test.bin
-tmp/04-write.t
