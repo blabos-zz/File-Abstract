@@ -1,5 +1,11 @@
 Revision history for File-Abstract
 
+0.03    2010-02-26
+        Correção de warning quando os valores passados ao pack eram undef
+
+0.02    2010-02-25
+        Implementação da API de leitura/escrita
+
 0.01    Date/time
         First version, released on an unsuspecting world.
 

@@ -11,11 +11,11 @@ File::Abstract - The great new File::Abstract!
 
 =head1 VERSION
 
-Version 0.01
+Version 0.03
 
 =cut
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =head1 $HEADER_FMT
 
@@ -298,7 +298,10 @@ sub write_header {
     $raw_data
         = pack(
             $self->{'_header_template'},
-            @{$self->{'header'}}{@{$self->{'_header_fields'}}}
+            map(
+                defined $_ ? $_ : 0,
+                @{$self->{'header'}}{@{$self->{'_header_fields'}}}
+            )
         );
     
     return print {$self->{'_fh'}} $raw_data;
@@ -409,26 +412,24 @@ sub _write_record {
     my $raw_data    = '';
     my $retval      = 0;
     
-    eval {
-        $raw_data
-            = pack(
-                $self->{'_record_template'},
+    $raw_data
+        = pack(
+            $self->{'_record_template'},
+            map(
+                defined $_ ? $_ : 0,
                 @{$record}{@{$self->{'_record_fields'}}}
-            );
-        
-        $retval = print {$self->{'_fh'}} $raw_data;
-        
-        if ($pos == $self->{'_size'}) {
-            $self->{'_size'}    += $self->{'_record_size'};
-            $self->{'_length'}  += 1;
-        }
-        else {
-            Carp::carp
-                "Failed to write record to file '", $self->{'_filename'}, "'";
-        }
-    };
-    if ($@) {
-        Carp::carp $@;
+            )
+        );
+    
+    $retval = print {$self->{'_fh'}} $raw_data;
+    
+    if ($pos == $self->{'_size'}) {
+        $self->{'_size'}    += $self->{'_record_size'};
+        $self->{'_length'}  += 1;
+    }
+    else {
+        Carp::carp
+            "Failed to write record to file '", $self->{'_filename'}, "'";
     }
     
     return $retval;
@@ -445,35 +446,33 @@ sub _write_record_list {
     my $bytes_expected  = 0;
     my $retval          = 0;
     
-    eval {
-        foreach my $record (@{$record_list_ref}) {
-            $raw_data
-                .= pack(
-                    $self->{'_record_template'},
+    foreach my $record (@{$record_list_ref}) {
+        $raw_data
+            .= pack(
+                $self->{'_record_template'},
+                map(
+                    defined $_ ? $_ : 0,
                     @{$record}{@{$self->{'_record_fields'}}}
-                );
-            
-            $self->{'_length'}++;
-            $bytes_expected += $self->{'_record_size'};
-        }
+                )
+            );
         
-        $retval = print {$self->{'_fh'}} $raw_data;
+        $self->{'_length'}++;
+        $bytes_expected += $self->{'_record_size'};
+    }
+    
+    $retval = print {$self->{'_fh'}} $raw_data;
+    
+    if (($pos + $bytes_expected) >= $self->{'_size'}) {
+        $self->{'_size'}
+            = $pos + $bytes_expected;
         
-        if (($pos + $bytes_expected) >= $self->{'_size'}) {
-            $self->{'_size'}
-                = $pos + $bytes_expected;
-            
-            $self->{'_length'}
-                = ($self->{'_size'} - $self->{'_header_size'})
-                / $self->{'_record_size'}
-        }
-        else {
-            Carp::carp
-                "Failed to write record to file '", $self->{'_filename'}, "'";
-        }
-    };
-    if ($@) {
-        Carp::carp $@;
+        $self->{'_length'}
+            = ($self->{'_size'} - $self->{'_header_size'})
+            / $self->{'_record_size'}
+    }
+    else {
+        Carp::carp
+            "Failed to write record to file '", $self->{'_filename'}, "'";
     }
     
     return $retval;
@@ -502,7 +501,27 @@ sub import {
                 '_record_size'          => record_size,
             };
             
-            bless({%{$atts}, %{$base_atts}}, $class);
+            foreach (@{$base_atts->{'_header_fields'}}) {
+                $base_atts->{'header'}->{$_} = 0;
+            }
+            
+            foreach (keys %{$atts->{'header'}}) {
+                $base_atts->{'header'}->{$_}
+                    = defined $atts->{'header'}->{$_}
+                    ? $atts->{'header'}->{$_}
+                    : 0;
+            }
+            
+            foreach (keys %{$atts}) {
+                next if $_ eq 'header';
+                
+                $base_atts->{$_}
+                    = defined $atts->{$_}
+                    ? $atts->{$_}
+                    : 0;
+            }
+            
+            bless($base_atts, $class);
         }
     ;
     our @EXPORT = qw(bless);
