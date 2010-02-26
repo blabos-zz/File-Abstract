@@ -52,6 +52,12 @@ if you don't export anything, such as for a purely object-oriented module.
 
 =cut
 
+sub DESTROY {
+    my $self = shift;
+    
+    eval { $self->close_file };
+}
+
 sub header_template {
     return join '', map { values %{$_} } @{$HEADER_FMT};
 }
@@ -487,6 +493,7 @@ sub import {
                 '_filename'             => '',
                 '_fh'                   => undef,
                 '_size'                 => undef,
+                '_block_size'           => 4096,
                 '_header_template'      => header_template,
                 '_header_fields'        => header_fields,
                 '_header_size'          => header_size,
