@@ -11,7 +11,11 @@ File::Abstract - The great new File::Abstract!
 
 =head1 VERSION
 
+<<<<<<< HEAD:lib/File/Abstract.pm
 Version 0.03
+=======
+Version 0.02
+>>>>>>> 8a78760b48558918c7258a108d019e115fa4dee7:lib/File/Abstract.pm
 
 =cut
 
