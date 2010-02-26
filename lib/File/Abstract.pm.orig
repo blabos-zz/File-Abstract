@@ -11,6 +11,12 @@ File::Abstract - The great new File::Abstract!
 
 =head1 VERSION
 
+<<<<<<< HEAD:lib/File/Abstract.pm
+Version 0.03
+=======
+Version 0.02
+>>>>>>> 8a78760b48558918c7258a108d019e115fa4dee7:lib/File/Abstract.pm
+
 =cut
 
 our $VERSION = '0.03';
@@ -82,22 +88,18 @@ sub record_size {
 
 sub show_header_fmt {
     my $self = shift;
-    return "\n                           HEADER\n\n"
-        . $self->meta_info($HEADER_FMT);
+    return "\n                           HEADER\n\n" . meta_info($HEADER_FMT);
 }
 
 sub show_record_fmt {
     my $self = shift;
-    return "\n                           RECORD\n\n"
-        . $self->meta_info($RECORD_FMT, 1);
+    return "\n                           RECORD\n\n" . meta_info($RECORD_FMT);
 }
 
 
 sub meta_info {
-    my $self        = shift;
     my $format_ref  = shift;
-    my $is_record   = shift || 0;
-    my $sum         = $is_record ? $self->{'_header_size'} : 0;
+    my $sum         = 0;
     
     my $output
         = sprintf(
@@ -460,18 +462,6 @@ sub _write_record_list {
         
         $self->{'_length'}++;
         $bytes_expected += $self->{'_record_size'};
-        
-        ## Block write
-        unless ($bytes_expected % $self->{'_block_size'}) {
-            $retval = print {$self->{'_fh'}} $raw_data;
-            
-            unless ($retval) {
-                Carp::carp "Failed to write records to file '";
-                last;
-            }
-            
-            $raw_data = '';
-        }
     }
     
     $retval = print {$self->{'_fh'}} $raw_data;
@@ -486,7 +476,7 @@ sub _write_record_list {
     }
     else {
         Carp::carp
-            "Failed to write records to file '", $self->{'_filename'}, "'";
+            "Failed to write record to file '", $self->{'_filename'}, "'";
     }
     
     return $retval;
