@@ -467,7 +467,7 @@ sub _write_record_list {
             
             unless ($retval) {
                 Carp::carp "Failed to write records to file '";
-                last;
+                return 0;
             }
             
             $raw_data = '';
