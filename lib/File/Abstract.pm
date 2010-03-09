@@ -13,7 +13,7 @@ File::Abstract - The great new File::Abstract!
 
 =cut
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 =head1 $HEADER_FMT
 
@@ -217,6 +217,20 @@ sub close_file {
 }
 
 
+sub read_header {
+    my $self = shift;
+    
+    my $raw_data;
+    
+    return 0 unless seek $self->{'_fh'}, 0, 0;
+    return 0 unless read $self->{'_fh'}, $raw_data, $self->{'_header_size'};
+    
+    @{$self->{'header'}}{@{$self->{'_header_fields'}}}
+        = unpack($self->{'_header_template'}, $raw_data);
+    
+    return 1;
+}
+
 sub read_record {
     my $self    = shift;
     my $index   = shift;
@@ -253,14 +267,17 @@ sub read_record_list {
     if (   $count <= 0
         or $count > $self->{'_length'}
         or $offset < 0
-        or $offset >= $self->{'_length'}
-        or $count > ($self->{'_length'} - $offset) ) {
+        or $offset >= $self->{'_length'} ) {
         
         my $last = $offset + $count - 1;
         Carp::carp
             "Range $offset..$last is out of valid range 0.."
             . ($self->{'_length'} - 1);
         return ();
+    }
+    
+    if (($count + $offset) > $self->{'_length'}) {
+        $count = $self->{'_length'} - $offset;
     }
     
     my $pos = $self->{'_header_size'} + $offset * $self->{'_record_size'};
@@ -295,7 +312,7 @@ sub write_header {
     
     return 0 unless seek $self->{'_fh'}, 0, 0;
     
-    $self->_make_default_header unless keys %{$self->{header}};
+    $self->_make_default_header unless keys %{$self->{'header'}};
     
     $raw_data
         = pack(
@@ -429,10 +446,10 @@ sub _write_record {
         $self->{'_size'}    += $self->{'_record_size'};
         $self->{'_length'}  += 1;
     }
-    else {
-        Carp::carp
-            "Failed to write record to file '", $self->{'_filename'}, "'";
-    }
+#    else {
+#        Carp::carp
+#            "Failed to write record to file '", $self->{'_filename'}, "'";
+#    }
     
     return $retval;
 }
@@ -462,7 +479,7 @@ sub _write_record_list {
         $bytes_expected += $self->{'_record_size'};
         
         ## Block write
-        unless ($bytes_expected % $self->{'_block_size'}) {
+        unless (($bytes_expected % $self->{'_block_size'})) {
             $retval = print {$self->{'_fh'}} $raw_data;
             
             unless ($retval) {
@@ -484,10 +501,10 @@ sub _write_record_list {
             = ($self->{'_size'} - $self->{'_header_size'})
             / $self->{'_record_size'}
     }
-    else {
-        Carp::carp
-            "Failed to write records to file '", $self->{'_filename'}, "'";
-    }
+#    else {
+#        Carp::carp
+#            "Failed to write records to file '", $self->{'_filename'}, "'";
+#    }
     
     return $retval;
 }
