@@ -2,12 +2,13 @@ package File::Abstract;
 
 use warnings;
 use strict;
+use bytes;
 
 use Data::Dumper;
 
 =head1 NAME
 
-File::Abstract - The great new File::Abstract!
+File::Abstract - Easy access to records of binary files
 
 =head1 VERSION
 
