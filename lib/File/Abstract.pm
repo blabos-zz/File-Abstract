@@ -4,7 +4,15 @@ use warnings;
 use strict;
 use bytes;
 
-use Data::Dumper;
+
+our $VERSION = '1.0000';
+
+our $HEADER_FMT;
+
+our $RECORD_FMT;
+
+
+#__END__
 
 =head1 NAME
 
@@ -12,42 +20,371 @@ File::Abstract - Easy access to records of binary files
 
 =head1 VERSION
 
-=cut
-
-our $VERSION = '0.04';
-
-=head1 $HEADER_FMT
+Current stable version is 1.0000
 
 =cut
-
-our $HEADER_FMT;
-
-=head1 $RECORD_FMT
-
-=cut
-
-our $RECORD_FMT;
-
 
 =head1 SYNOPSIS
 
-Quick summary of what the module does.
+This module abstracts the access to records in binary files. You need to
+extend it by creating a sub-class which will specify the formats of header and
+records using strings according to the documentation of the pack and unpack
+functions.
 
-Perhaps a little code snippet.
+See perldoc -f pack and perldoc -f unpack for more details about the syntaxe
+of pack functions.
 
-    use File::Abstract;
+See sub-section L</"Examples"> for more details about how to properly create
+the sub-classes of File::Abstract.
 
-    my $foo = File::Abstract->new();
-    ...
+    package Sample;
+    
+    use parent 'File::Abstract';
+    
+    $File::Abstract::HEADER_FMT = [
+        {'ver'  => 'l'  },  # An integer (4 bytes)
+        {'copy' => 'Z40'},  # A null-terminated string (40 bytes)
+        {'time' => 'l'  },  # Another integer (4bytes)
+    ];
+    
+    $File::Abstract::RECORD_FMT = [
+        {'foo'  => 'd'  },  # A double (8 bytes)
+        {'bar'  => 'l'  },  # An integer (4 bytes)
+    ];
+    
+    sub new {
+        my $class   = shift;
+        my $args    = shift || {};
+        my $atts    = {
+            'my_specifc_attribite' => 'some value',
+        };
+        
+        return bless($atts, $class);
+    }
+    
+    42;
 
-=head1 EXPORT
+=head1 DESCRIPTION
 
-A list of functions that can be exported.  You can delete this section
-if you don't export anything, such as for a purely object-oriented module.
+This module was created as a tool for ease manipulation of binary files. We
+needed read, write and update arbitrary binary files, and sometimes we needed
+explore them before, until discover its internal data format.
 
-=head1 SUBROUTINES/METHODS
+We begin using directly the functions pack and unpack and soon we understood
+that almost all files shared some characteristics, as a fixed size header
+(optional) and a list of fixed size records. Both header and records was
+composed by fields. Theese fields in turn varied in quantity and sizes, but
+also each had its fixed size.
 
-=head2 test
+        Header Fields
+       /      |      \
+    +-------------------+
+    | ver | copy | time | ------> Header
+    +-------------------+
+    | foo 1   |   bar 1 |\
+    +-------------------+ \
+    | foo 2   |   bar 2 |  \
+    +-------------------+   +---> Records
+    |  ...    |    ...  |  /
+    +-------------------+ /
+    | foo N   |   bar N |/
+    +-------------------+
+       \             /
+        Record Fields
+
+We decided then encapsulate the maximum number of shared characteristics into
+a generic module and extend it as needed.
+
+This module was created as a tool for ease manipulation of binary files, thus
+it was designed to be easily understood and extended, with a well defined and
+concise interface. It definitively NO cares about perfornace, the main goal
+is ease of use. You was advised!
+
+=head2 HEADER_FMT and RECORD_FMT
+
+HEADER_FMT is an array reference. Each element of this array is a header field
+positioned in the exact order that it is into file. Each element is composed
+by a hash reference where the key is the field name and the value is a string
+in pack-style indicating the type and size of field.
+
+For some file formats there is no header.
+
+RECORD_FMT is an array reference with the same characteristics that
+HEADER_FMT.
+
+In some rare cases there are formats that has no records.
+
+=head2 Caution
+
+When retrieving header or record fields, you will get exactly what you have
+placed into HEADER_FMT and RECORD_FMT. Pay special attention with typos.
+
+In other hand when you update data, only the fields that match exactly with
+those into HEADER_FMT and RECORD_FMT will be updated and all those fields that
+weren't explicitly provided will be filled with its default values. Any other
+will be discarded. Again, you must pay special attention with typos.
+
+=head2 Examples
+
+=head3 Header without records
+
+Supose we need manipulate a binary file which contains the fields:
+
+=over
+
+=item version
+
+A 32-bit integer.
+
+=item vendor
+
+A string with at most 20 characters.
+
+=item price
+
+A double float point value.
+
+=back
+
+We can resolve this with the code below:
+
+    package OnlyHeader;
+    
+    use parent 'File::Abstract';
+    
+    $File::Abstract::HEADER_FMT = [
+        {'version'  => 'l'  },  # An integer (4 bytes)
+        {'vendor'   => 'Z20'},  # A null-terminated string (20 bytes)
+        {'price'    => 'd'  },  # A double float point
+    ];
+    
+    # Constructor
+    sub new {
+        my $class   = shift;
+        my $atts    = {};
+        
+        return bless($atts, $class);
+    }
+    
+    42;
+
+We can then instantiate a object to read and write values:
+
+    my $file = OnlyHeader->new;
+    
+    $file->open('filename.dat');
+    
+    my $data;
+    $file->read_header($data);
+    say $data->{'vendor'}, ' sold me the version ',
+        $data->{'version'},' by only $',
+        $data->{'price'}, $/;
+    
+    $data->write_header({
+        'version'   => 175,
+        'vendor'    => 'Blabos Inc',
+        'price'     => 1234.56,
+    });
+    
+    $file->close;
+
+=head3 Records without header
+
+Eventually we need to some help with a list of unread books:
+
+=over
+
+=item title
+
+A string with at most 40 characters.
+
+=item pages
+
+An integer.
+
+=item return_date
+
+A timestamp.
+
+=back
+
+We can create a package like this:
+
+    package UnreadBooks;
+    
+    use parent 'File::Abstract';
+    
+    $File::Abstract::RECORD_FMT = [
+        {'title'        => 'Z40'},  # A null-padded string
+        {'pages'        => 'l'  },  # An integer (4 bytes)
+        {'return_date'  => 'l'  },  # A timestamp (integer with 4 bytes)
+    ];
+    
+    sub new {
+        my $class   = shift;
+        my $atts    = {};
+        
+        return bless($atts, $class);
+    }
+
+And use it like this:
+
+    my ($file, @records);
+    
+    $file = UnreadBooks->new;
+    $file->open('MyUnreadBooks.bin');
+    $file->read(\@records);
+    
+    say 'Title: ', $_->{'title'} foreach @records; 
+    
+    $file->close;
+
+=head3 Full header and records
+
+Now supose we have a tiny contact list with my debtors:
+
+Globally:
+
+=over
+
+=item version
+
+An integer.
+
+=item max_contacts
+
+Another integer.
+
+=item total_amount
+
+A double float point.
+
+=back
+
+Each record:
+
+=over
+
+=item name
+
+A string with at most 80 characters.
+
+=item address
+
+Another string with alt most 80 characters.
+
+=item amount
+
+A double float point.
+
+=back
+
+We can do something like this:
+
+    package Contacts;
+    
+    use parent 'File::Abstract';
+    
+    $File::Abstract::HEADER_FMT = [
+        {'version'      => 'l'  },  # An integer (4 bytes)
+        {'max_contacts' => 'l'  },  # Another integer (4bytes)
+        {'total_amount' => 'l'  },  # A double float point (8 bytes)
+    ];
+    
+    $File::Abstract::RECORD_FMT = [
+        {'name'         => 'Z80'},  # A null-padded string
+        {'address'      => 'Z80'},  # Another null-padded string
+        {'amount'       => 'd'  },  # A double float point
+    ];
+    
+    sub new {
+        my $class   = shift;
+        my $atts    = {};
+        
+        return bless($atts, $class);
+    }
+    
+    42;
+
+And then use it like this:
+
+    my $file = Contacts->new;
+    
+    $file->open('contacts.raw');
+    
+    my $data;
+    $file->read_header($data);
+    
+    my $contact = {
+        'name'      => 'John Smith',
+        'address'   => 'Some Place Street',
+        'amount'    => 1234.56,
+    }
+    
+    $data->{'amount'} += $contact->{'amount'};
+    
+    $file->append([$contact]);
+    $file->write_header($header);
+    
+    $file->close;
+
+
+=cut
+
+=head1 METHODS
+
+=head2 open($filename)
+
+Try to open the file specified in $filename for read and write. Return true or
+false to indicate sucess or fail.
+
+=head2 close()
+
+Close the file currently opened.
+
+=head2 read(\@records,[$count,[$offset]])
+
+Try to read $count records into array @records passed as reference.
+
+=head2 write(\@records,[$offset])
+
+=head2 append(\@records,[$offset])
+
+=head2 read_header(\%header)
+
+
+=head2 write_header(\%header)
+
+
+=head2 header_fmt()
+
+
+=head2 header_size()
+
+
+=head2 header_fields()
+
+
+=head2 record_fmt()
+
+
+=head2 record_size()
+
+
+=head2 record_fields()
+
+
+=head2 meta_info()
+
+
+=head2 size()
+
+Return the size in bytes of this file.
+
+
+=head2 length()
+
+Return the number of records of this file. 
 
 =cut
 
