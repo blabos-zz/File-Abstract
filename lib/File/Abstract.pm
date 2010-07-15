@@ -32,7 +32,7 @@ sub record_fmt {
 
 sub record_fields {
     my $self = shift;
-    return $self->{'_rec_ffields'};
+    return $self->{'_rec_fields'};
 }
 
 sub record_size {
