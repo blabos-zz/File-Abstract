@@ -335,8 +335,9 @@ And then use it like this:
 
 =head2 open($filename)
 
-Try to open the file specified in $filename for read and write. Return true or
-false to indicate sucess or fail.
+Open the file specified in $filename for read and write. If the file do not
+exist, this method will create a new empty file. Return true or false to
+indicate success or fail.
 
 =head2 close()
 
@@ -344,43 +345,63 @@ Close the file currently opened.
 
 =head2 read(\@records,[$count,[$offset]])
 
-Try to read $count records into array @records passed as reference.
+Retrieves records from the file currently opened and copy them into @records.
+The number of records to retrieve may be specified by parameter $count
+(default is all records). An offset to the first record may be informed
+by parameter $offset (Default is no offset). The first record has position 0.
 
 =head2 write(\@records,[$offset])
 
+Writes all records from @records into the file currently opened. An offset to
+where the first record will be stored may be informed by parameter $offset,
+increasing the file if needed (Default is no offset. Must be less than or
+equals to file length).
+
 =head2 append(\@records,[$offset])
+
+Appends all records from @records at the end of the file currently opened.
 
 =head2 read_header(\%header)
 
+Extracts the header of the file currently opened and copy it into %header.
 
 =head2 write_header(\%header)
 
+Overwrites the file header with the values into %header. Values whose keys are
+not listed in $HEADER_FMT will be discarded.
 
 =head2 header_fmt()
 
+Returns the full pack-style string that represents the header format.
 
 =head2 header_size()
 
+Returns the size in bytes of header.
 
 =head2 header_fields()
 
+Returns an ordered list with all keys (field names) of header.
 
 =head2 record_fmt()
 
+Returns the full pack-style string that represents the record format.
 
 =head2 record_size()
 
+Returns the size in bytes of a single record.
 
 =head2 record_fields()
 
+Returns an ordered list with all keys (field names) of a single record. 
 
 =head2 meta_info()
 
+Returns a formated string with all meta information about sizes, types and
+positions of all header and record fields.
 
 =head2 size()
 
 Return the size in bytes of this file.
-
 
 =head2 length()
 
