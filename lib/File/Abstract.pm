@@ -5,12 +5,244 @@ use strict;
 use bytes;
 
 
-our $VERSION = '1.0000';
+our $VERSION    = '1.0000';
+our $HEADER_FMT = [];
+our $RECORD_FMT = [];
 
-our $HEADER_FMT;
 
-our $RECORD_FMT;
+sub header_fmt {
+    my $self = shift;
+    return $self->{'_hdr_fmt'};
+}
 
+sub header_fields {
+    my $self = shift;
+    return $self->{'_hdr_fields'};
+}
+
+sub header_size {
+    my $self = shift;
+    return $self->{'_hdr_size'};
+}
+
+sub record_fmt {
+    my $self = shift;
+    return $self->{'_rec_fmt'};
+}
+
+sub record_fields {
+    my $self = shift;
+    return $self->{'_rec_ffields'};
+}
+
+sub record_size {
+    my $self = shift;
+    return $self->{'_rec_size'};
+}
+
+sub meta_info {
+    my $self    = shift;
+    my $sum     = 0;
+    my $output  = '';
+    
+    $output
+        .= sprintf(
+            "\n%27s\n\n%20s\t%10s\t%10s\t%10s\t%10s\n",
+            'HEADER',
+            'FIELD',
+            'FORMAT',
+            'SIZE (BYTES)',
+            'OFFSET DEC',
+            'OFFSET HEX',
+        );
+    
+    foreach my $field (@{$HEADER_FMT}) {
+        my ($key, $value) = %{$field};
+        
+        $output
+            .= sprintf(
+                "%20s\t%10s\t%10d\t%10d\t%10X\n",
+                $key,
+                $value,
+                length(pack($value)),
+                $sum,
+                $sum,
+            );
+        
+        $sum += length(pack $value);
+    }
+    
+    $output
+        .= sprintf(
+            "\n%27s\n\n%20s\t%10s\t%10s\t%10s\t%10s\n",
+            'RECORD',
+            'FIELD',
+            'FORMAT',
+            'SIZE (BYTES)',
+            'OFFSET DEC',
+            'OFFSET HEX',
+        );
+    
+    foreach my $field (@{$RECORD_FMT}) {
+        my ($key, $value) = %{$field};
+        
+        $output
+            .= sprintf(
+                "%20s\t%10s\t%10d\t%10d\t%10X\n",
+                $key,
+                $value,
+                length(pack($value)),
+                $sum,
+                $sum,
+            );
+        
+        $sum += length(pack $value);
+    }
+    
+    return $output;
+}
+
+sub size {
+    my $self = shift;
+    
+    return $self->{'_size'};
+}
+
+sub length {
+    my $self = shift;
+    
+    return $self->{'_length'};
+}
+
+
+##############################################################################
+## Private methods                                                          ##
+##############################################################################
+
+##
+## Overhides core::bless to automatically merge the private attributes
+## provided by File::Abstract with the private attributes created by user.
+##
+sub import {
+    no strict;
+    *{caller() . '::bless'}
+        = sub {
+            my ($atts, $class) = @_;
+            
+            ## Default private attributes.
+            my $base_atts = {
+                'header'        => {},
+                '_filename'     => '',
+                '_fh'           => undef,
+                '_size'         => undef,
+                '_length'       => undef,
+                '_blk_size'     => 4096,
+                '_hdr_fmt'      => _header_fmt,
+                '_hdr_fields'   => _header_fields,
+                '_hdr_size'     => _header_size,
+                '_rec_fmt'      => _record_fmt,
+                '_rec_fields'   => _record_fields,
+                '_rec_size'     => _record_size,
+            };
+            
+            ## Private attributes cleanup.
+            foreach my $field ($base_atts->{'_hdr_fields'}) {
+                $base_atts->{'header'}->{$field} = 0;
+            }
+            
+            ## Merges user private attributes with my own private attributes.
+            ## Skips header for now.
+            foreach my $attribute (keys %{$atts}) {
+                next if $attribute eq 'header';
+                
+                $base_atts->{$attribute}
+                    = defined $atts->{$attribute}
+                    ? $atts->{$attribute}
+                    : 0;
+            }
+            
+            ## Merges/copy header values when provided by user.
+            if (exists $atts->{'header'}) {
+                foreach my $field ($base_atts->{'_hdr_fields'}) {
+                    $base_atts->{'header'}->{$field}
+                        = exists $atts->{'header'}{$field}
+                        ? $atts->{'header'}{$field}
+                        : 0;
+                }
+            }
+            
+            bless($base_atts, $class);
+        }
+    ;
+    our @EXPORT = qw(bless);
+    use strict;
+}
+
+
+##
+## Destructor.
+##
+sub DESTROY {
+    my $self = shift;
+    
+    $self->close;
+}
+
+
+##
+## Builds and return the pack-style string of header format.
+##
+sub _header_fmt {
+    return join '', map { values %{$_} } @{$HEADER_FMT};
+}
+
+
+##
+## Builds and return the ordered list of header fields.
+##
+sub _header_fields {
+    return map { keys %{$_} } @{$HEADER_FMT};
+}
+
+
+##
+## Calculates and return the header size.
+##
+sub _header_size {
+    return core::length pack _header_fmt;
+}
+
+
+##
+## Builds and return the pack-style string of record format.
+##
+sub _record_fmt {
+    return join '', map { values %{$_} } @{$RECORD_FMT};
+}
+
+
+##
+## Builds ad return the ordered list of record fields.
+##
+sub _record_fields {
+    return map { keys %{$_} } @{$RECORD_FMT};
+}
+
+
+##
+## Calculates and return the record size.
+##
+sub _record_size {
+    return core::length pack _record_fmt;
+}
+
+
+# Return to normal character mode.
+no bytes;
+
+
+# End of File::Abstract
+42;
 
 #__END__
 
@@ -409,94 +641,8 @@ Return the number of records of this file.
 
 =cut
 
-sub DESTROY {
-    my $self = shift;
-    
-    eval { $self->close_file };
-}
-
-sub header_template {
-    return join '', map { values %{$_} } @{$HEADER_FMT};
-}
-
-sub header_fields {
-    return [map { keys %{$_} } @{$HEADER_FMT}];
-}
-
-sub header_size {
-    return length pack header_template;
-}
-
-sub record_template {
-    return join '', map { values %{$_} } @{$RECORD_FMT};
-}
-
-sub record_fields {
-    return [map { keys %{$_} } @{$RECORD_FMT}];
-}
-
-sub record_size {
-    return length pack record_template;
-}
-
-sub show_header_fmt {
-    my $self = shift;
-    return "\n                           HEADER\n\n"
-        . $self->meta_info($HEADER_FMT);
-}
-
-sub show_record_fmt {
-    my $self = shift;
-    return "\n                           RECORD\n\n"
-        . $self->meta_info($RECORD_FMT, 1);
-}
 
 
-sub meta_info {
-    my $self        = shift;
-    my $format_ref  = shift;
-    my $is_record   = shift || 0;
-    my $sum         = $is_record ? $self->{'_header_size'} : 0;
-    
-    my $output
-        = sprintf(
-            "%20s\t%10s\t%10s\t%10s\t%10s\n",
-            'FIELD',
-            'FORMAT',
-            'SIZE (BYTES)',
-            'OFFSET DEC',
-            'OFFSET HEX',
-        );
-    
-    foreach my $field (@{$format_ref}) {
-        my ($key, $value) = %{$field};
-        
-        $output
-            .= sprintf(
-                "%20s\t%10s\t%10d\t%10d\t%10X\n",
-                $key,
-                $value,
-                length(pack($value)),
-                $sum,
-                $sum,
-            );
-        
-        $sum += length(pack $value);
-    }
-    
-    return $output;
-}
-
-
-sub size {
-    my $self = shift;
-    return $self->{'_size'};
-}
-
-sub length {
-    my $self = shift;
-    return $self->{'_length'};
-}
 
 
 
@@ -871,51 +1017,7 @@ sub _write_record_list {
 
 
 
-sub import {
-    no strict;
-    *{caller() . '::bless'}
-        = sub {
-            my ($atts, $class) = @_;
-            
-            my $base_atts = {
-                'header'                => {},
-                '_filename'             => '',
-                '_fh'                   => undef,
-                '_size'                 => undef,
-                '_block_size'           => 4096,
-                '_header_template'      => header_template,
-                '_header_fields'        => header_fields,
-                '_header_size'          => header_size,
-                '_record_template'      => record_template,
-                '_record_fields'        => record_fields,
-                '_record_size'          => record_size,
-            };
-            
-            foreach (@{$base_atts->{'_header_fields'}}) {
-                $base_atts->{'header'}->{$_} = 0;
-            }
-            
-            foreach (keys %{$atts->{'header'}}) {
-                $base_atts->{'header'}->{$_}
-                    = defined $atts->{'header'}->{$_}
-                    ? $atts->{'header'}->{$_}
-                    : 0;
-            }
-            
-            foreach (keys %{$atts}) {
-                next if $_ eq 'header';
-                
-                $base_atts->{$_}
-                    = defined $atts->{$_}
-                    ? $atts->{$_}
-                    : 0;
-            }
-            
-            bless($base_atts, $class);
-        }
-    ;
-    our @EXPORT = qw(bless);
-}
+
 
 
 =head1 AUTHOR
