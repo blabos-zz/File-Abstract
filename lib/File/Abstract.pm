@@ -9,6 +9,143 @@ our $VERSION    = '1.0000';
 our $HEADER_FMT = [];
 our $RECORD_FMT = [];
 
+$|              = 1;
+
+
+sub open {
+    my $self    = shift;
+    my $status  = undef;
+    
+    if (-f $self->{'_filename'}) {
+        $status = core::open($self->{'_fh'}, '+<', $self->{'_filename'});
+    }
+    else {
+        $status
+            = core::open($self->{'_fh'}, '>', $self->{'_filename'})
+            && $self->_write_header;
+    }
+    
+    binmode $self->{'_fh'} if defined $self->{'_fh'};
+    
+    return $status;
+}
+
+sub close {
+    my $self = shift;
+    
+    return core::close($self->{'_fh'});
+}
+
+##
+## TODO: out of range
+##
+sub read {
+    my ($self, $records, $count, $offset) = @_;
+    my $status  = 0;
+    
+    if (ref $records ne 'ARRAY') {
+        Carp::croak('Invalid record list. Must be an Array Reference.');
+        return 0;
+    }
+    
+    $count  ||= $self->{'_length'};
+    $offset ||= 0;
+    
+    my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
+    
+    unless (seek($self->{'_fh'}, $pos, 0)) {
+        Carp::croak('Cannot seek to position ' . $pos);
+        return 0;
+    }
+    
+    my $buffer      = '';
+    my $bytes       = $self->{'_rec_size'} * $count;
+    my $bread       = 0;
+    my $template    = $self->{'_rec_fmt'} x $count;
+    
+    unless (($bread = read($self->{'_fh'}, $buffer, $bytes)) == $bytes) {
+        Carp::croak('Cannot read ' . $bytes - $bread
+            . ' bytes from file ' . $self->{'_filename'});
+        return 0;
+    }
+    
+    my @values  = unpack($template, $buffer);
+    my $nfields = scalar($self->{'_rec_fields'});
+    
+    unless (scalar(@values) == $count * $nfields) {
+        Carp::croak('Error retrieving data from file '
+            . $self->{'_filename'});
+        return 0;
+    }
+    else {
+        for my $i (0 .. $count - 1) {
+            @{$records->[$i]}{$self->{'_rec_fields'}}
+                = @values[ ($i * $nfields) .. (($i + 1) * $nfields) ];
+        }
+        
+        return 1;
+    }
+}
+
+##
+## TODO: out of range and reverse logic like read
+##
+sub write {
+    my ($self, $records, $offset) = @_;
+    my $status  = 0;
+    my $count   = 0;
+    
+    if (ref $records eq 'ARRAY') {
+        $count  ||= @{$records};
+        $offset ||= 0;
+        
+        my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
+        
+        if (seek($self->{'_fh'}, $pos, 0)) {
+            for my $i (0 .. $count) {
+                $self->{'_blk'}
+                    .= pack(
+                        $self->{'_rec_fmt'},
+                        map(
+                            defined $_ ? $_ : 0,
+                            @{$records->[$i]}{$self->{'_rec_fields'}}
+                        )
+                    );
+                
+                $self->{'_length'}++;
+                
+                ## Stores block if needed
+                if (core::length($self->{'_blk'}) >= $self->{'_blk_size'}) {
+                    if (print {$self->{'_fh'}} $self->{'_blk'}) {
+                        $self->{'_blk'} = '';
+                    }
+                    else {
+                        Carp::croak('Failed to write [' . $self->{'_blk'}
+                            . '] to file ' . $self->{'_filename'});
+                        
+                        $status = 0;
+                        last;
+                    }
+                }
+                
+                $status = 1;
+            }
+            
+            ## Stores ramaining data if needed
+            if ($status && core::length($self->{'_blk'})) {
+                $status = print {$self->{'_fh'}} $self->{'_blk'};
+            }
+        }
+        else {
+            Carp::croak('Cannot seek to position ' . $pos);
+        }
+    }
+    else {
+        Carp::croak('Invalid record list. Must be an Array Reference.');
+    }
+    
+    return $status;
+}
 
 sub header_fmt {
     my $self = shift;
@@ -137,6 +274,7 @@ sub import {
                 '_size'         => undef,
                 '_length'       => undef,
                 '_blk_size'     => 4096,
+                '_blk'          => '',
                 '_hdr_fmt'      => _header_fmt,
                 '_hdr_fields'   => _header_fields,
                 '_hdr_size'     => _header_size,
@@ -234,6 +372,25 @@ sub _record_fields {
 ##
 sub _record_size {
     return core::length pack _record_fmt;
+}
+
+
+##
+## Writes header into the file currently opened.
+##
+sub _write_header {
+    my $self = shift;
+    
+    my $data
+        = pack(
+            $self->{'_hdr_fmt'},
+            map(
+                defined $_ ? $_ : 0,
+                @{$self->{'header'}}{$self->{'_hdr_fields'}}
+            )
+        );
+    
+    return print {$self->{'_fh'}} $data;
 }
 
 
