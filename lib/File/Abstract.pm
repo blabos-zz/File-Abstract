@@ -36,9 +36,6 @@ sub close {
     return core::close($self->{'_fh'});
 }
 
-##
-## TODO: out of range
-##
 sub read {
     my ($self, $records, $count, $offset) = @_;
     my $status  = 0;
@@ -50,6 +47,12 @@ sub read {
     
     $count  ||= $self->{'_length'};
     $offset ||= 0;
+    
+    if ($count < 0 || $offset < 0 || ($offset + $count) > $self->{'_length'}){
+        Carp::croak('Record indexes ou of range (0 .. '
+            . ($self->{'_length'} - 1));
+        return 0;
+    }
     
     my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
     
@@ -87,64 +90,73 @@ sub read {
     }
 }
 
-##
-## TODO: out of range and reverse logic like read
-##
 sub write {
     my ($self, $records, $offset) = @_;
     my $status  = 0;
     my $count   = 0;
     
-    if (ref $records eq 'ARRAY') {
-        $count  ||= @{$records};
-        $offset ||= 0;
-        
-        my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
-        
-        if (seek($self->{'_fh'}, $pos, 0)) {
-            for my $i (0 .. $count) {
-                $self->{'_blk'}
-                    .= pack(
-                        $self->{'_rec_fmt'},
-                        map(
-                            defined $_ ? $_ : 0,
-                            @{$records->[$i]}{$self->{'_rec_fields'}}
-                        )
-                    );
-                
-                $self->{'_length'}++;
-                
-                ## Stores block if needed
-                if (core::length($self->{'_blk'}) >= $self->{'_blk_size'}) {
-                    if (print {$self->{'_fh'}} $self->{'_blk'}) {
-                        $self->{'_blk'} = '';
-                    }
-                    else {
-                        Carp::croak('Failed to write [' . $self->{'_blk'}
-                            . '] to file ' . $self->{'_filename'});
-                        
-                        $status = 0;
-                        last;
-                    }
-                }
-                
-                $status = 1;
-            }
-            
-            ## Stores ramaining data if needed
-            if ($status && core::length($self->{'_blk'})) {
-                $status = print {$self->{'_fh'}} $self->{'_blk'};
-            }
-        }
-        else {
-            Carp::croak('Cannot seek to position ' . $pos);
-        }
-    }
-    else {
+    if (ref $records ne 'ARRAY') {
         Carp::croak('Invalid record list. Must be an Array Reference.');
+        return 0;
+    }
+    
+    $count  = @{$records};
+    $offset ||= 0;
+    
+    if ($offset < 0 || $offset > $self->{'_length'}){
+        Carp::croak('Record indexes ou of range (0 .. '
+            . ($self->{'_length'} - 1));
+        return 0;
+    }
+    
+    my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
+    
+    unless (seek($self->{'_fh'}, $pos, 0)) {
+        Carp::croak('Cannot seek to position ' . $pos);
+        return 0;
+    }
+    
+    for my $i (0 .. $count) {
+        $self->{'_blk'}
+            .= pack(
+                $self->{'_rec_fmt'},
+                map(
+                    defined $_ ? $_ : 0,
+                    @{$records->[$i]}{$self->{'_rec_fields'}}
+                )
+            );
+        
+        $self->{'_length'}++;
+        
+        ## Stores block if needed
+        if (core::length($self->{'_blk'}) >= $self->{'_blk_size'}) {
+            if (print {$self->{'_fh'}} $self->{'_blk'}) {
+                $self->{'_blk'} = '';
+            }
+            else {
+                Carp::croak('Failed to write [' . $self->{'_blk'}
+                    . '] to file ' . $self->{'_filename'});
+                
+                $status = 0;
+                last;
+            }
+        }
+        
+        $status = 1;
+    }
+    
+    ## Stores ramaining data if needed
+    if ($status && core::length($self->{'_blk'})) {
+        $status = print {$self->{'_fh'}} $self->{'_blk'};
     }
     
     return $status;
+}
+
+sub append {
+    my ($self, $records);
+    
+    return $self->write($records, $self->{'_length'});
 }
 
 sub header_fmt {
@@ -401,7 +413,7 @@ no bytes;
 # End of File::Abstract
 42;
 
-#__END__
+__END__
 
 =head1 NAME
 
@@ -746,7 +758,7 @@ where the first record will be stored may be informed by parameter $offset,
 increasing the file if needed (Default is no offset. Must be less than or
 equals to file length).
 
-=head2 append(\@records,[$offset])
+=head2 append(\@records)
 
 Appends all records from @records at the end of the file currently opened.
 
@@ -797,384 +809,6 @@ Return the size in bytes of this file.
 Return the number of records of this file. 
 
 =cut
-
-
-
-
-
-
-
-sub open_file {
-    my ($self, $filename)   = @_;
-    my $retval              = 1;
-    
-    eval {
-        open $self->{'_fh'}, '+<', $filename
-            or Carp::croak "Cannot open file '$filename'";
-        
-        binmode $self->{'_fh'};
-        
-        $self->{'_filename'}
-            = $filename;
-            
-        $self->{'_size'}
-            = -s $filename;
-        
-        $self->{'_length'}
-            = ($self->{'_size'} - $self->{'_header_size'})
-            / $self->{'_record_size'};
-    };
-    if ($@) {
-        Carp::carp $@;
-        $retval = 0;
-    }
-    
-    return $retval;
-}
-
-sub new_file {
-    my ($self, $filename)   = @_;
-    my $retval              = 0;
-    
-    eval {
-        open $self->{'_fh'}, '>', $filename
-            or Carp::carp "Cannot create file '$filename'";
-        
-        $self->write_header;
-        
-        close $self->{'_fh'};
-        
-        $self->{'_size'}    = $self->{'_header_size'};
-        $self->{'_length'}  = 0;
-    };
-    if ($@) {
-        Carp::croak $@;
-    }
-    else {
-        $retval = 1;
-    }
-    
-    return $retval;
-}
-
-sub open_or_new_file {
-    my ($self, $filename)   = @_;
-    my $retval              = 0;
-    
-    eval {
-        $self->new_file($filename) unless (-f $filename);
-        $retval = $self->open_file($filename);
-    };
-    if ($@) {
-        Carp::croak $@;
-    }
-    
-    return $retval;
-}
-
-sub close_file {
-    my $self = shift;
-    
-    eval { close $self->{'_fh'} if $self->{'_fh'} }
-}
-
-
-sub read_header {
-    my $self = shift;
-    
-    my $raw_data;
-    
-    return 0 unless seek $self->{'_fh'}, 0, 0;
-    return 0 unless read $self->{'_fh'}, $raw_data, $self->{'_header_size'};
-    
-    @{$self->{'header'}}{@{$self->{'_header_fields'}}}
-        = unpack($self->{'_header_template'}, $raw_data);
-    
-    return 1;
-}
-
-sub read_record {
-    my $self    = shift;
-    my $index   = shift;
-    my $ret_ref = shift;
-    
-    my $retval = 0;
-    
-    if ($index >= 0 and $index < $self->{'_length'}) {
-        my $pos
-            = $self->{'_header_size'}
-            + $index * $self->{'_record_size'};
-        
-        eval {
-            $retval = $self->_read_record($pos, $ret_ref);
-        };
-        Carp::carp $@ if $@;
-    }
-    else {
-        Carp::carp
-            "Index $index out of range (0.." . ($self->{'_length'} - 1) . ")";
-        $retval = 0;
-    }
-    
-    return $retval;
-}
-
-sub read_record_list {
-    my $self    = shift;
-    my $count   = shift || 1;
-    my $offset  = shift || 0;
-    
-    my @records = ();
-    
-    if (   $count <= 0
-        or $count > $self->{'_length'}
-        or $offset < 0
-        or $offset >= $self->{'_length'} ) {
-        
-        my $last = $offset + $count - 1;
-        Carp::carp
-            "Range $offset..$last is out of valid range 0.."
-            . ($self->{'_length'} - 1);
-        return ();
-    }
-    
-    if (($count + $offset) > $self->{'_length'}) {
-        $count = $self->{'_length'} - $offset;
-    }
-    
-    my $pos = $self->{'_header_size'} + $offset * $self->{'_record_size'};
-    eval{
-        return 0 unless seek $self->{'_fh'}, $pos, 0;
-        
-        for (1 .. $count) {
-            my (%record, $data);
-            
-            Carp::croak "Cannot read record " . ($count + $offset - 1)
-                unless read $self->{'_fh'}, $data, $self->{'_record_size'};
-            
-            @record{@{$self->{'_record_fields'}}}
-                = unpack($self->{'_record_template'}, $data);
-            
-            push @records, \%record;
-        }
-    };
-    if ($@) {
-        Carp::carp $@;
-        return ();
-    }
-    
-    return @records;
-}
-
-
-sub write_header {
-    my $self = shift;
-    
-    my $raw_data;
-    
-    return 0 unless seek $self->{'_fh'}, 0, 0;
-    
-    $self->_make_default_header unless keys %{$self->{'header'}};
-    
-    $raw_data
-        = pack(
-            $self->{'_header_template'},
-            map(
-                defined $_ ? $_ : 0,
-                @{$self->{'header'}}{@{$self->{'_header_fields'}}}
-            )
-        );
-    
-    return print {$self->{'_fh'}} $raw_data;
-}
-
-
-sub write_record {
-    my $self    = shift;
-    my $index   = shift;
-    my $record  = shift;
-    
-    my $retval = 0;
-    
-    my $pos
-        = $self->{'_header_size'}
-        + $index * $self->{'_record_size'};
-    
-    if ($index >= 0 and $index < $self->{'_length'}) {
-        eval {
-            $retval = $self->_write_record($pos, $record);
-        };
-        Carp::carp $@ if $@;
-    }
-    elsif ($index == $self->{'_length'}) {
-        $retval = $self->append_record($pos, $record);
-    }
-    else {
-        Carp::carp
-            "Index $index out of range (0.." . ($self->{'_length'} - 1) . ")";
-        $retval = 0;
-    }
-    
-    return $retval;
-}
-
-sub append_record {
-    my $self    = shift;
-    my $pos     = shift;
-    my $record  = shift;
-    
-    my $retval;
-    
-    eval {
-        $retval = $self->_write_record($pos, $record);
-    };
-    if ($@) {
-        Carp::carp $@;
-    }
-    
-    return $retval;
-}
-
-sub write_record_list {
-    my $self            = shift;
-    my $index           = shift;
-    my $record_list_ref = shift;
-    
-    my $retval = 0;
-    
-    my $pos
-        = $self->{'_header_size'}
-        + $index * $self->{'_record_size'};
-    
-    if ($index >= 0 and $index <= $self->{'_length'}) {
-        eval {
-            $retval = $self->_write_record_list($pos, $record_list_ref);
-        };
-        Carp::carp $@ if $@;
-    }
-    else {
-        Carp::carp
-            "Offset $index out of range (0.." . ($self->{'_length'} - 1) . ")";
-        $retval = 0;
-    }
-    
-    return $retval;
-}
-
-
-
-sub _read_record {
-    my ($self, $pos, $ret_hash_ref) = @_;
-    my $raw_data;
-    
-    return 0 unless seek $self->{'_fh'}, $pos, 0;
-    return 0 unless read $self->{'_fh'}, $raw_data, $self->{'_record_size'};
-    
-    @{$ret_hash_ref}{@{$self->{'_record_fields'}}}
-        = unpack($self->{'_record_template'}, $raw_data);
-    
-    return 1;
-}
-
-sub _make_default_header {
-    my $self = shift;
-    
-    foreach my $field (@{$self->{'_header_fields'}}) {
-        $self->{'header'}->{$field} = 0;
-    }
-}
-
-
-sub _write_record {
-    my ($self, $pos, $record) = @_;
-    
-    return 0 unless seek $self->{'_fh'}, $pos, 0;
-    
-    my $raw_data    = '';
-    my $retval      = 0;
-    
-    $raw_data
-        = pack(
-            $self->{'_record_template'},
-            map(
-                defined $_ ? $_ : 0,
-                @{$record}{@{$self->{'_record_fields'}}}
-            )
-        );
-    
-    $retval = print {$self->{'_fh'}} $raw_data;
-    
-    if ($pos == $self->{'_size'}) {
-        $self->{'_size'}    += $self->{'_record_size'};
-        $self->{'_length'}  += 1;
-    }
-#    else {
-#        Carp::carp
-#            "Failed to write record to file '", $self->{'_filename'}, "'";
-#    }
-    
-    return $retval;
-}
-
-sub _write_record_list {
-    my $self            = shift;
-    my $pos             = shift;
-    my $record_list_ref = shift;
-    
-    return 0 unless seek $self->{'_fh'}, $pos, 0;
-    
-    my $raw_data        = '';
-    my $bytes_expected  = 0;
-    my $retval          = 0;
-    
-    foreach my $record (@{$record_list_ref}) {
-        $raw_data
-            .= pack(
-                $self->{'_record_template'},
-                map(
-                    defined $_ ? $_ : 0,
-                    @{$record}{@{$self->{'_record_fields'}}}
-                )
-            );
-        
-        $self->{'_length'}++;
-        $bytes_expected += $self->{'_record_size'};
-        
-        ## Block write
-        unless (($bytes_expected % $self->{'_block_size'})) {
-            $retval = print {$self->{'_fh'}} $raw_data;
-            
-            unless ($retval) {
-                Carp::carp "Failed to write records to file '";
-                return 0;
-            }
-            
-            $raw_data = '';
-        }
-    }
-    
-    $retval = print {$self->{'_fh'}} $raw_data;
-    
-    if (($pos + $bytes_expected) >= $self->{'_size'}) {
-        $self->{'_size'}
-            = $pos + $bytes_expected;
-        
-        $self->{'_length'}
-            = ($self->{'_size'} - $self->{'_header_size'})
-            / $self->{'_record_size'}
-    }
-#    else {
-#        Carp::carp
-#            "Failed to write records to file '", $self->{'_filename'}, "'";
-#    }
-    
-    return $retval;
-}
-
-
-
-
-
 
 
 =head1 AUTHOR
@@ -1235,5 +869,3 @@ See http://dev.perl.org/licenses/ for more information.
 
 
 =cut
-
-1; # End of File::Abstract
