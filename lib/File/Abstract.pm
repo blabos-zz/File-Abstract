@@ -4,28 +4,38 @@ use warnings;
 use strict;
 use bytes;
 
+use Carp;
+use Data::Dumper;
 
-our $VERSION    = '1.0000';
+
+our $VERSION    = '0.9000';
 our $HEADER_FMT = [];
 our $RECORD_FMT = [];
 
-$|              = 1;
-
 
 sub open {
-    my $self    = shift;
-    my $status  = undef;
+    my ($self, $filename)   = @_;
+    my $status              = 1;
     
-    if (-f $self->{'_filename'}) {
-        $status = core::open($self->{'_fh'}, '+<', $self->{'_filename'});
-    }
-    else {
-        $status
-            = core::open($self->{'_fh'}, '>', $self->{'_filename'})
-            && $self->_write_header;
+    unless (-f $filename) {
+        if($status = CORE::open($self->{'_fh'}, '>', $filename)) {
+            binmode $self->{'_fh'};
+            $self->_write_header;
+            CORE::close($self->{'_fh'});
+        }
     }
     
-    binmode $self->{'_fh'} if defined $self->{'_fh'};
+    if ($status && CORE::open($self->{'_fh'}, '+<', $filename)) {
+        binmode $self->{'_fh'};
+        
+        $self->{'_size'} = -s $filename;
+        
+        $self->{'_length'}
+            = ($self->{'_size'} - $self->{'_hdr_size'})
+            / $self->{'_rec_size'};
+        
+        $self->{'_filename'} = $filename;
+    }
     
     return $status;
 }
@@ -33,7 +43,7 @@ sub open {
 sub close {
     my $self = shift;
     
-    return core::close($self->{'_fh'});
+    return CORE::close($self->{'_fh'});
 }
 
 sub read {
@@ -41,7 +51,7 @@ sub read {
     my $status  = 0;
     
     if (ref $records ne 'ARRAY') {
-        Carp::croak('Invalid record list. Must be an Array Reference.');
+        Carp::carp('Invalid record list. Must be an Array Reference.');
         return 0;
     }
     
@@ -49,15 +59,16 @@ sub read {
     $offset ||= 0;
     
     if ($count < 0 || $offset < 0 || ($offset + $count) > $self->{'_length'}){
-        Carp::croak('Record indexes ou of range (0 .. '
-            . ($self->{'_length'} - 1));
+        Carp::carp('Record indexes (' . $offset . ' .. '
+            . ($offset + $count - 1) . ') out of range (0 .. '
+            . ($self->{'_length'} - 1) . ')');
         return 0;
     }
     
     my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
     
     unless (seek($self->{'_fh'}, $pos, 0)) {
-        Carp::croak('Cannot seek to position ' . $pos);
+        Carp::carp('Cannot seek to position ' . $pos);
         return 0;
     }
     
@@ -67,22 +78,22 @@ sub read {
     my $template    = $self->{'_rec_fmt'} x $count;
     
     unless (($bread = read($self->{'_fh'}, $buffer, $bytes)) == $bytes) {
-        Carp::croak('Cannot read ' . $bytes - $bread
+        Carp::carp('Cannot read ' . ($bytes - $bread)
             . ' bytes from file ' . $self->{'_filename'});
         return 0;
     }
     
     my @values  = unpack($template, $buffer);
-    my $nfields = scalar($self->{'_rec_fields'});
+    my $nfields = scalar(@{$self->{'_rec_fields'}});
     
     unless (scalar(@values) == $count * $nfields) {
-        Carp::croak('Error retrieving data from file '
+        Carp::carp('Error retrieving data from file '
             . $self->{'_filename'});
         return 0;
     }
     else {
         for my $i (0 .. $count - 1) {
-            @{$records->[$i]}{$self->{'_rec_fields'}}
+            @{$records->[$i]}{@{$self->{'_rec_fields'}}}
                 = @values[ ($i * $nfields) .. (($i + 1) * $nfields) ];
         }
         
@@ -96,7 +107,7 @@ sub write {
     my $count   = 0;
     
     if (ref $records ne 'ARRAY') {
-        Carp::croak('Invalid record list. Must be an Array Reference.');
+        Carp::carp('Invalid record list. Must be an Array Reference.');
         return 0;
     }
     
@@ -104,50 +115,39 @@ sub write {
     $offset ||= 0;
     
     if ($offset < 0 || $offset > $self->{'_length'}){
-        Carp::croak('Record indexes ou of range (0 .. '
-            . ($self->{'_length'} - 1));
+        Carp::carp('Record indexes (' . $offset . ' .. '
+            . ($offset + $count - 1) . ') out of range (0 .. '
+            . ($self->{'_length'} - 1) . ')');
         return 0;
     }
     
     my $pos = $self->{'_hdr_size'} + $offset * $self->{'_rec_size'};
     
     unless (seek($self->{'_fh'}, $pos, 0)) {
-        Carp::croak('Cannot seek to position ' . $pos);
+        Carp::carp('Cannot seek to position ' . $pos);
         return 0;
     }
     
-    for my $i (0 .. $count) {
-        $self->{'_blk'}
-            .= pack(
-                $self->{'_rec_fmt'},
-                map(
-                    defined $_ ? $_ : 0,
-                    @{$records->[$i]}{$self->{'_rec_fields'}}
-                )
-            );
-        
-        $self->{'_length'}++;
-        
-        ## Stores block if needed
-        if (core::length($self->{'_blk'}) >= $self->{'_blk_size'}) {
-            if (print {$self->{'_fh'}} $self->{'_blk'}) {
-                $self->{'_blk'} = '';
-            }
-            else {
-                Carp::croak('Failed to write [' . $self->{'_blk'}
-                    . '] to file ' . $self->{'_filename'});
-                
-                $status = 0;
-                last;
-            }
-        }
-        
-        $status = 1;
-    }
+    my $template
+        = $self->{'_rec_fmt'} x $count;
     
-    ## Stores ramaining data if needed
-    if ($status && core::length($self->{'_blk'})) {
-        $status = print {$self->{'_fh'}} $self->{'_blk'};
+    my @values
+        = map(
+            defined $_ ? $_ : 0,
+            map(
+                @$_{@{$self->{'_rec_fields'}}},
+                @{$records}
+            )
+        );
+    
+    $status = print {$self->{'_fh'}} pack($template, @values);
+    
+    if ($status) {
+        $self->{'_length'}
+            = $offset + $count;
+        $self->{'_size'}
+            = $self->{'_hdr_size'}
+            + ($self->{'_length'} * $self->{'_rec_size'});
     }
     
     return $status;
@@ -269,7 +269,7 @@ sub length {
 ##############################################################################
 
 ##
-## Overhides core::bless to automatically merge the private attributes
+## Overhides CORE::bless to automatically merge the private attributes
 ## provided by File::Abstract with the private attributes created by user.
 ##
 sub import {
@@ -287,12 +287,12 @@ sub import {
                 '_length'       => undef,
                 '_blk_size'     => 4096,
                 '_blk'          => '',
-                '_hdr_fmt'      => _header_fmt,
-                '_hdr_fields'   => _header_fields,
-                '_hdr_size'     => _header_size,
-                '_rec_fmt'      => _record_fmt,
-                '_rec_fields'   => _record_fields,
-                '_rec_size'     => _record_size,
+                '_hdr_fmt'      => _header_fmt(),
+                '_hdr_fields'   => _header_fields(),
+                '_hdr_size'     => _header_size(),
+                '_rec_fmt'      => _record_fmt(),
+                '_rec_fields'   => _record_fields(),
+                '_rec_size'     => _record_size(),
             };
             
             ## Private attributes cleanup.
@@ -335,7 +335,7 @@ sub import {
 sub DESTROY {
     my $self = shift;
     
-    $self->close;
+    $self->close if $self->{'_fh'};
 }
 
 
@@ -351,7 +351,7 @@ sub _header_fmt {
 ## Builds and return the ordered list of header fields.
 ##
 sub _header_fields {
-    return map { keys %{$_} } @{$HEADER_FMT};
+    return [map { keys %{$_} } @{$HEADER_FMT}];
 }
 
 
@@ -359,7 +359,7 @@ sub _header_fields {
 ## Calculates and return the header size.
 ##
 sub _header_size {
-    return core::length pack _header_fmt;
+    return CORE::length pack _header_fmt;
 }
 
 
@@ -375,7 +375,7 @@ sub _record_fmt {
 ## Builds ad return the ordered list of record fields.
 ##
 sub _record_fields {
-    return map { keys %{$_} } @{$RECORD_FMT};
+    return [map { keys %{$_} } @{$RECORD_FMT}];
 }
 
 
@@ -383,7 +383,7 @@ sub _record_fields {
 ## Calculates and return the record size.
 ##
 sub _record_size {
-    return core::length pack _record_fmt;
+    return CORE::length pack _record_fmt;
 }
 
 

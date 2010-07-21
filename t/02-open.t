@@ -3,19 +3,14 @@
 use warnings;
 use strict;
 
-use Test::More tests => 12;
+use Test::More tests => 7;
 
 use File::Sample;
 
 my $sample = File::Sample->new;
 
 ok(
-    (not $sample->open_file('t/sample/non_exists.bin')),
-    'Opening file "t/sample/non_exists.bin"'
-);
-
-ok(
-    ($sample->open_file('t/sample/read-test.bin')),
+    ($sample->open('t/sample/read-test.bin')),
     'Opening file "t/sample/read-test.bin"'
 );
 
@@ -32,7 +27,7 @@ ok(
 
 unlink 't/sample/create-test.bin';
 ok(
-    ($sample->new_file('t/sample/create-test.bin')),
+    ($sample->open('t/sample/create-test.bin')),
     'Creating file "t/sample/create-test.bin"'
 );
 
@@ -52,26 +47,5 @@ ok(
 );
 
 unlink 't/sample/create-test.bin';
-
-ok(
-    ($sample->new_file('t/sample/create-test.bin')),
-    'Creating file "t/sample/create-test.bin"'
-);
-
-ok(
-    ($sample->length == 0),
-    'Checking size of a new file'
-);
-unlink 't/sample/create-test.bin';
-
-ok(
-    ($sample->open_or_new_file('t/sample/read-test.bin')),
-    'Creating file "t/sample/read-test.bin"'
-);
-
-ok(
-    ($sample->length == 5),
-    'Re-checking size'
-);
 
 diag("Testing create, open and sizes of binary files");

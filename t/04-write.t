@@ -3,96 +3,113 @@
 use warnings;
 use strict;
 
-use Test::More tests => 12;
+use Test::More tests => 14;
 
 use File::Sample;
+
 use Data::Dumper;
 
 unlink 't/sample/write-test.bin';
 
 my $sample = File::Sample->new;
-$sample->open_or_new_file('t/sample/write-test.bin');
+$sample->open('t/sample/write-test.bin');
 
-my %data;
-my $rec_ref = {};
+my @records;
 
+# First record/append
+@records = ();
+for (my $i = 0; $i < 10; $i++) {
+    push @records, {'foo' => 123 + $i / 10.0, 'bar' => 780 + $i};
+}
 
-## First record/append
-@data{qw(foo bar)} = qw(123.456 7890);
 ok(
-    ($sample->write_record(0, \%data)),
-    'Writing the first record'
+    ($sample->write(\@records)),
+    'Writing ten records'
 );
 
 ok(
-    ($sample->size == 60),
-    'Checking for size'
+    ($sample->length == 10),
+    'Checking length'
 );
 
 ok(
-    ($sample->length == 1),
-    'Checking for length'
+    ($sample->size == 168),
+    'Checking size'
 );
 
-delete @{$rec_ref}{keys %{$rec_ref}};
-$sample->read_record(0, $rec_ref);
+@records = ();
+$sample->read(\@records);
 
 ok(
-    (abs($rec_ref->{'foo'} - 123.456) < 0.0000000001),
+    (abs($records[0]->{'foo'} - 123.0) < 0.0000000001),
     'Checking foo for first record'
 );
 
 ok(
-    ($rec_ref->{'bar'} == 7890),
+    ($records[0]->{'bar'} == 780),
     'Checking bar for first record'
+);
+
+ok(
+    (abs($records[9]->{'foo'} - 123.9) < 0.0000000001),
+    'Checking foo for last record'
+);
+
+ok(
+    ($records[9]->{'bar'} == 789),
+    'Checking bar for last record'
 );
 
 
 ## Re-checking
-@data{qw(foo bar)} = qw(9.87 6543210);
+@records = ();
+for (my $i = 10; $i > 0; $i--) {
+    push @records, {'foo' => 123 + $i / 10.0, 'bar' => 780 + $i};
+}
+
 ok(
-    ($sample->write_record(0, \%data)),
-    'Re-writing the first record'
+    ($sample->write(\@records)),
+    'Re-writing ten records'
 );
 
-ok(
-    ($sample->size == 60),
-    'Re-checking for size'
-);
+@records = ();
+$sample->read(\@records);
 
 ok(
-    ($sample->length == 1),
-    'Re-checking for length'
-);
-
-delete @{$rec_ref}{keys %{$rec_ref}};
-$sample->read_record(0, $rec_ref);
-
-ok(
-    (abs($rec_ref->{'foo'} - 9.87) < 0.0000000001),
+    (abs($records[0]->{'foo'} - 124.0) < 0.0000000001),
     'Re-checking foo for first record'
 );
 
 ok(
-    ($rec_ref->{'bar'} == 6543210),
+    ($records[0]->{'bar'} == 790),
     'Re-checking bar for first record'
 );
 
-
-## -1th record
 ok(
-    (not $sample->write_record(-1, \%data)),
-    'Writing the -1th record'
+    (abs($records[9]->{'foo'} - 123.1) < 0.0000000001),
+    'Re-checking foo for last record'
+);
+
+ok(
+    ($records[9]->{'bar'} == 781),
+    'Re-checking bar for last record'
 );
 
 
-## 11th record (out of range)
+## Before -1
 ok(
-    (not $sample->write_record(11, \%data)),
-    'Writing the 11th record'
+    (not $sample->write(\@records, -1)),
+    'Writing ten records from record -1'
+);
+
+
+## After last
+ok(
+    (not $sample->write(\@records, 11)),
+    'Writing ten records from record 11'
 );
 
 unlink 't/sample/write-test.bin';
 
 
-diag("Testing writing a record")
+diag("Testing writing some records")

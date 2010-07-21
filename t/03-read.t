@@ -3,65 +3,89 @@
 use warnings;
 use strict;
 
-use Test::More tests => 8;
+use Test::More tests => 12;
 
 use File::Sample;
-use Data::Dumper;
 
 my $sample = File::Sample->new;
-$sample->open_file('t/sample/read-test.bin');
+$sample->open('t/sample/read-test.bin');
 
-my $rec_ref = {};
+my @records;
 
 
 ## First record
+@records = ();
 ok(
-    ($sample->read_record(0, $rec_ref)),
+    ($sample->read(\@records, 1, 0)),
     'Getting the first record'
 );
 
 ok(
-    (abs($rec_ref->{'foo'} - 1.23) <= 0.0000000001),
+    (abs($records[0]->{'foo'} - 1.23) < 0.0000000001),
     'Checking foo value for first record'
 );
 
 ok(
-    ($rec_ref->{'bar'} == 10),
+    ($records[0]->{'bar'} == 10),
     'Checking bar value for first record'
 );
 
 
 ## 5th record
-delete @{$rec_ref}{keys %{$rec_ref}};
+@records = ();
 ok(
-    ($sample->read_record(4, $rec_ref)),
+    ($sample->read(\@records, 1, 4)),
     'Getting the 5th record'
 );
 
 ok(
-    (abs($rec_ref->{'foo'} - 5.67) <= 0.0000000001),
+    (abs($records[0]->{'foo'} - 5.67) < 0.0000000001),
     'Checking foo value for 5th record'
 );
 
 ok(
-    ($rec_ref->{'bar'} == 50),
+    ($records[0]->{'bar'} == 50),
     'Checking bar value for 5th record'
 );
 
 
 ## -1th record
-delete @{$rec_ref}{keys %{$rec_ref}};
 ok(
-    (not $sample->read_record(-1, $rec_ref)),
+    (not $sample->read(\@records, 1, -1)),
     'Getting the -1th record'
 );
 
 
 ## 6th record (out of range)
-delete @{$rec_ref}{keys %{$rec_ref}};
 ok(
-    (not $sample->read_record(5, $rec_ref)),
-    'Getting the 6th record'
+    (not $sample->read(\@records, 1, 5)),
+    'Getting the 11th record'
+);
+
+
+## Getting invalid ranges
+ok(
+    (not $sample->read(\@records, 1, -10)),
+    'Getting the offset -10'
+);
+
+ok(
+    (not $sample->read(\@records, 15, 5)),
+    'Getting invalid counts'
+);
+
+ok(
+    (not $sample->read(\@records, 10, 2)),
+    'Getting out of range'
+);
+
+
+## Getting records
+$sample->read(\@records, 5);
+
+ok(
+    (scalar(@records) == $sample->length),
+    'Getting 5 records'
 );
 
 
